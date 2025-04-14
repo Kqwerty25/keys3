@@ -1,0 +1,212 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Блог-приложение</title>
+    <style>
+        body {
+            font-family: Arial;
+            margin: 20px
+        }
+
+        .post, .comment {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-top: 10px
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .tag {
+            background: #e1e1e1;
+            padding: 2px 5px;
+            margin: 2px;
+            display: inline-block;
+        }
+    </style>
+</head>
+<body>
+    <h2>Добро пожаловать в блог!</h2>
+    <div id="auth">
+        <input id="username" placeholder="Введите имя" />
+        <button onclick="registerOrLogin()">Войти / Зарегистрироваться</button>
+    </div>
+    <div id="userPanel" class="hidden">
+        <p id="greeting"></p>
+        <textarea id="postContent" placeholder="Ваш пост..."></textarea><br />
+        <input id="postTags" placeholder="Теги (через запятую)" />
+        <select id="visibility">
+            <option value="public">Публичный</option>
+            <option value="private">Скрытый (по запросу)</option>
+        </select>
+        <button onclick="createPost()">Опубликовать</button>
+    </div>
+    <h3>Посты ваших подписок</h3>
+    <div id="subscribedPosts"></div>
+    <h3>Все публичные посты</h3>
+    <div id="publicPosts"></div>
+    <h3>Запрос постов (по автору)</h3>
+    <input id="requestAuthor" placeholder="Имя автора" />
+    <button onclick="requestHiddenPosts()">Показать скрытые посты автора</button>
+    <div id="hiddenPostsRequested"></div>
+    <h3>Сортировка по тегу</h3>
+    <input id="filterTag" oninput="filterByTag()" placeholder="Фильтр по тегу" />
+
+    <script>
+    let currentUser = null;
+    let users = JSON.parse(localStorage.getItem('users')) || {};
+    let posts = JSON.parse(localStorage.getItem('posts')) || [];
+
+    function saveData() {
+      localStorage.setItem('users', JSON.stringify(users));
+      localStorage.setItem('posts', JSON.stringify(posts));
+    }
+
+    function registerOrLogin() {
+      const name = document.getElementById('username').value.trim();
+      if (!name) return alert("Введите имя");
+      if (!users[name]) {
+        users[name] = { username: name, subscriptions: [] };
+        saveData();
+        alert("Пользователь зарегистрирован");
+      }
+      currentUser = users[name];
+      document.getElementById('auth').classList.add('hidden');
+      document.getElementById('userPanel').classList.remove('hidden');
+      document.getElementById('greeting').innerText = "Привет, " + name;
+      renderPosts();
+    }
+
+    function createPost() {
+      const content = document.getElementById('postContent').value.trim();
+      const tags = document.getElementById('postTags').value.split(',').map(t => t.trim()).filter(Boolean);
+      const visibility = document.getElementById('visibility').value;
+      if (!content) return alert("Введите текст поста");
+      const newPost = {
+        id: Date.now(),
+        author: currentUser.username,
+        content,
+        tags,
+        visibility,
+        comments: [],
+        createdAt: new Date().toISOString()
+      };
+      posts.push(newPost);
+      saveData();
+      renderPosts();
+    }
+
+    function renderPosts() {
+      document.getElementById('subscribedPosts').innerHTML = '';
+      document.getElementById('publicPosts').innerHTML = '';
+      const subs = currentUser ? currentUser.subscriptions : [];
+      posts.forEach(post => {
+        const postElem = createPostElement(post);
+        if (post.visibility === 'public') {
+          document.getElementById('publicPosts').appendChild(postElem);
+        }
+        if (currentUser && subs.includes(post.author) && post.visibility === 'public') {
+          document.getElementById('subscribedPosts').appendChild(postElem.cloneNode(true));
+        }
+      });
+    }
+
+    function createPostElement(post) {
+      const div = document.createElement('div');
+      div.className = 'post';
+      div.innerHTML = `
+        <strong>${post.author}</strong> (${new Date(post.createdAt).toLocaleString()})<br/>
+        <p>${post.content}</p>
+        <div>${post.tags.map(t => `<span class="tag">${t}</span>`).join(' ')}</div>
+        <small>Видимость: ${post.visibility}</small><br/>
+      `;
+      if (currentUser && currentUser.username !== post.author) {
+        const subBtn = document.createElement('button');
+        subBtn.innerText = currentUser.subscriptions.includes(post.author) ? 'Отписаться' : 'Подписаться';
+        subBtn.onclick = () => toggleSubscription(post.author);
+        div.appendChild(subBtn);
+      }
+
+      if (currentUser && post.author === currentUser.username) {
+        div.innerHTML += `
+          <button onclick="editPost(${post.id})">Редактировать</button>
+          <button onclick="deletePost(${post.id})">Удалить</button>
+        `;
+      }
+
+      const commentsSec = document.createElement('div');
+      post.comments.forEach(c => {
+        const com = document.createElement('div');
+        com.className = 'comment';
+        com.innerHTML = `<b>${c.author}:</b> ${c.text}`;
+        commentsSec.appendChild(com);
+      });
+      div.appendChild(commentsSec);
+
+      if (currentUser) {
+        const input = document.createElement('input');
+        input.placeholder = 'Комментарий';
+        const btn = document.createElement('button');
+        btn.textContent = 'Ок';
+        btn.onclick = () => {
+          post.comments.push({ author: currentUser.username, text: input.value });
+          saveData();
+          renderPosts();
+        };
+        div.appendChild(input);
+        div.appendChild(btn);
+      }
+      return div;
+    }
+
+    function editPost(id) {
+      const post = posts.find(p => p.id === id);
+      const newText = prompt("Редактировать текст:", post.content);
+      if (newText) {
+        post.content = newText;
+        saveData();
+        renderPosts();
+      }
+    }
+
+    function deletePost(id) {
+      posts = posts.filter(p => p.id !== id);
+      saveData();
+      renderPosts();
+    }
+
+    function toggleSubscription(author) {
+      const i = currentUser.subscriptions.indexOf(author);
+      if (i >= 0) {
+        currentUser.subscriptions.splice(i, 1);
+      } else {
+        currentUser.subscriptions.push(author);
+      }
+      saveData();
+      renderPosts();
+    }
+
+    function requestHiddenPosts() {
+      const author = document.getElementById('requestAuthor').value.trim();
+      const container = document.getElementById('hiddenPostsRequested');
+      container.innerHTML = '';
+      const requested = posts.filter(p => p.author === author && p.visibility === 'private');
+      requested.forEach(p => container.appendChild(createPostElement(p)));
+    }
+
+    function filterByTag() {
+      const tag = document.getElementById('filterTag').value.trim().toLowerCase();
+      document.querySelectorAll('.post').forEach(p => {
+        if (!tag) return p.classList.remove('hidden');
+        const containsTag = p.innerText.toLowerCase().includes(tag);
+        p.classList.toggle('hidden', !containsTag);
+      });
+    }
+
+    renderPosts();
+    </script>
+</body>
+</html>
